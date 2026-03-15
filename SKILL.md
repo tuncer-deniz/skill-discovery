@@ -1,6 +1,6 @@
 ---
 name: skill-discovery
-description: Analyze session patterns to identify candidates for new skills, plugins, agents, or workflow rules. Self-improvement automation.
+description: Skill lifecycle toolkit — discover new skills from session patterns, then monitor them for degradation with skill-health.py.
 metadata: { "openclaw": { "emoji": "🔍" } }
 ---
 
@@ -149,4 +149,29 @@ It should cover [patterns identified].
 
 ---
 
-*Meta-skill: helps you build more skills.*
+## Skill Health Monitoring
+
+This skill also includes `skill-health.py` — a lightweight tracker for skill invocation success/failure rates.
+
+### Commands
+```bash
+skill-health.py log <skill> success|failure [--error "msg"]   # Log result
+skill-health.py report                                         # Full report
+skill-health.py check                                          # Degrading only (cron)
+```
+
+### Cron Integration
+```json
+{
+  "name": "weekly-skill-health-check",
+  "schedule": { "kind": "cron", "expr": "0 9 * * 1" },
+  "payload": { "kind": "agentTurn", "message": "Run skill-health.py check. Report any degrading skills." },
+  "sessionTarget": "isolated"
+}
+```
+
+Data stored at `~/.skill-health/data.json` (override with `SKILL_HEALTH_DATA` env var). Python 3 stdlib only.
+
+---
+
+*Skill lifecycle: discover → create → monitor → improve.*
