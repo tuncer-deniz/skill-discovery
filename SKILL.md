@@ -89,9 +89,11 @@ jq -r 'select(.type=="message" and .message.role=="user") |
 ### 2. Filter Out Noise
 Remove automated/system messages:
 - Cron triggers (`[cron:...`)
-- Heartbeat prompts
+- Heartbeat prompts (`Read HEARTBEAT.md`)
 - Pre-compaction flushes
 - Timestamp prefixes
+
+**Heartbeat sessions:** Bucket separately — don't discard entirely. Heartbeat-initiated sessions are valid automation signal (they reveal what the agent monitors and how), but they dominate the user message corpus (~70% of sessions in a typical week). Mixing them into organic request clustering drowns out real user patterns. Analyze them in a dedicated "Automation Health" section instead.
 
 ### 3. Cluster Patterns
 Group similar requests by:
@@ -132,6 +134,13 @@ jq -r 'select(.type=="tool_use") | .name' session.jsonl | grep -E "camofox_(crea
 ```
 If `camofox_create_tab` count exceeds `camofox_close_tab` count in a session → tab leak. Browsers accumulate, memory climbs, bot-detection fingerprints diverge.
 
+**Remediation:** When a session is flagged as a chronic tab-leaker (2+ consecutive runs with unclosed tabs):
+1. Identify the cron job name from the session metadata
+2. Link to its instruction/skill file for editing
+3. Add `camofox_close_tab` to the teardown path in the skill/cron instructions
+4. Run `camofox-cleanup.sh` (from openclaw-optimization) to close leaked tabs immediately
+5. If the cron runs nightly, verify the fix on the next run — don't wait for next week's report
+
 #### Workspace File Bloat
 ```bash
 wc -c ~/.openclaw/MEMORY.md ~/.openclaw/AGENTS.md ~/.openclaw/BRAIN.md 2>/dev/null
@@ -168,6 +177,8 @@ jq -s '
 ```
 
 Sessions with >15 tool calls, >3 different tool types, and zero `sessions_spawn` = delegation miss. Flag these as candidates for subagent refactoring — the main session context likely bloated unnecessarily.
+
+**Cron/organic split:** Before flagging, check if the session was cron-initiated (look for `[cron:` prefix or `cron` in session metadata). Cron-automated tasks (bookmark researcher, signal runner, intel dashboard) legitimately run 20-50+ tools inline by design — they're isolated sessions whose context dies after the run. Only flag organic (user-initiated) sessions as delegation gaps.
 
 ### 7. Cross-Agent Analysis (Multi-Node)
 If running multiple agents, SSH to other nodes:
