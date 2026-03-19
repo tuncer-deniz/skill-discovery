@@ -15,6 +15,8 @@ This skill analyzes your OpenClaw session history to find:
 - **Re-learned lessons** → AGENTS.md rules
 - **Multi-step workflows** → Automation opportunities
 - **Cross-agent struggles** → Shared infrastructure needs
+- **Operational anomalies** → Leaks, bloat, and broken automation
+- **Delegation gaps** → Tasks that should have used subagents
 
 ## When to Use
 
@@ -31,6 +33,8 @@ Analyze my sessions from the last 7 days and identify:
 2. Rules I keep re-learning that should be in AGENTS.md
 3. Multi-step workflows that could be automated
 4. Things that caused the most friction
+5. Operational anomalies (tab leaks, file bloat, cron failures)
+6. Subagent delegation gaps
 ```
 
 ## Automated Weekly Check (Cron Setup)
@@ -51,6 +55,21 @@ Analyze my sessions from the last 7 days and identify:
 
 ## Analysis Steps
 
+### 0. Query LCM First (New in v2)
+
+Before reading raw JSONL, check LCM summaries — they capture compacted history that the raw files no longer contain:
+
+```
+lcm_grep pattern="repeated|again|always|every time"
+```
+
+Use `lcm_expand_query` to drill into specific patterns found:
+```
+lcm_expand_query query="repeated workflow friction" prompt="What tasks does the agent do repeatedly that could be automated?"
+```
+
+LCM is especially valuable because raw JSONL entries are pruned after compaction — patterns that happened weeks ago are often only visible in LCM summaries.
+
 ### 1. Extract Session Data
 ```bash
 # Find recent sessions
@@ -60,6 +79,12 @@ find ~/.openclaw/agents/*/sessions/ -name "*.jsonl" -mtime -7
 jq -r 'select(.type=="message" and .message.role=="user") | 
   .message.content[]? | select(.type=="text") | .text' session.jsonl
 ```
+
+> **Custom workspace:** If your sessions live elsewhere, set `CLAWD_WORKSPACE` env var:
+> ```bash
+> export CLAWD_WORKSPACE=/path/to/your/workspace
+> find $CLAWD_WORKSPACE/agents/*/sessions/ -name "*.jsonl" -mtime -7
+> ```
 
 ### 2. Filter Out Noise
 Remove automated/system messages:
@@ -74,6 +99,19 @@ Group similar requests by:
 - **Target objects** (config, skill, cron, agent, build)
 - **Context** (project, tool, service)
 
+#### Tool Sequence Pattern Matching (New in v2)
+
+Look for repeated tool-call sequences — the same 3+ tool types in the same order appearing 3+ times across sessions:
+
+```bash
+# Extract tool call sequences per session
+jq -r 'select(.type=="tool_use") | .name' session.jsonl | paste - - - | sort | uniq -c | sort -rn
+```
+
+Example: `web_fetch → exec → message send` appearing 4 times = a research-and-report workflow worth scripting into a dedicated skill.
+
+Flag any sequence appearing 3+ times as an automation candidate.
+
 ### 4. Score Candidates
 Prioritize by: `frequency × estimated_time_saved`
 
@@ -83,7 +121,55 @@ Prioritize by: `frequency × estimated_time_saved`
 | 3-4 occurrences | Add to AGENTS.md as rule |
 | 2 occurrences | Note for observation |
 
-### 5. Cross-Agent Analysis (Multi-Node)
+### 5. Operational Anomaly Detection (New in v2)
+
+Check for operational problems that silently degrade agent performance:
+
+#### Camofox Tab Leaks
+```bash
+# Sessions that opened tabs without closing them
+jq -r 'select(.type=="tool_use") | .name' session.jsonl | grep -E "camofox_(create_tab|close_tab)"
+```
+If `camofox_create_tab` count exceeds `camofox_close_tab` count in a session → tab leak. Browsers accumulate, memory climbs, bot-detection fingerprints diverge.
+
+#### Workspace File Bloat
+```bash
+wc -c ~/.openclaw/MEMORY.md ~/.openclaw/AGENTS.md ~/.openclaw/BRAIN.md 2>/dev/null
+```
+Files >15KB are eating context budget every session. Flag for pruning:
+- `MEMORY.md` >15KB → archive old entries
+- `AGENTS.md` >15KB → split into domain files
+- `BRAIN.md` >10KB → trim completed tasks
+
+#### Cron Failure Patterns
+```bash
+# Check for consecutive failures on same job
+grep "FAILED\|error\|exit code [^0]" ~/.openclaw/cron-logs/*.log | \
+  awk -F: '{print $1}' | sort | uniq -c | sort -rn
+```
+2+ consecutive failures on the same job = broken automation. Surface immediately, don't wait for weekly review.
+
+### 6. Subagent Delegation Gap Detection (New in v2)
+
+Identify sessions where the main agent did too much work inline:
+
+```bash
+# Sessions with high tool diversity but no subagent spawn
+jq -s '
+  group_by(.session_id)[] |
+  {
+    session: .[0].session_id,
+    tool_calls: [.[] | select(.type=="tool_use")] | length,
+    tool_types: [.[] | select(.type=="tool_use") | .name] | unique | length,
+    spawned: ([.[] | select(.type=="tool_use" and .name=="sessions_spawn")] | length)
+  } |
+  select(.tool_calls > 15 and .tool_types > 3 and .spawned == 0)
+' *.jsonl
+```
+
+Sessions with >15 tool calls, >3 different tool types, and zero `sessions_spawn` = delegation miss. Flag these as candidates for subagent refactoring — the main session context likely bloated unnecessarily.
+
+### 7. Cross-Agent Analysis (Multi-Node)
 If running multiple agents, SSH to other nodes:
 ```bash
 ssh luna@<IP> 'find ~/.openclaw/agents/*/sessions/ -name "*.jsonl" -mtime -7'
@@ -106,11 +192,18 @@ Issues appearing across multiple agents = highest priority.
 ### ⚙️ Automation Opportunities
 1. **[workflow]** — [steps that could be scripted]
 
+### 🔴 Operational Anomalies
+1. **[issue type]** — [details] — [severity]
+
+### 🤖 Delegation Gaps
+1. **[session]** — [N tool calls, M tool types, 0 spawns] — [refactor candidate]
+
 ### 🔥 Friction Points
 1. **[issue]** — [how often] — [suggested fix]
 
 ### 📊 Stats
 - Sessions analyzed: N
+- LCM summaries queried: N
 - Unique patterns: N
 - Agents covered: [list]
 ```
@@ -125,6 +218,7 @@ Issues appearing across multiple agents = highest priority.
 | Looking up OpenClaw config structure | 5x/week | AGENTS.md rule |
 | Parsing session JSONL manually | 4x/week | This skill |
 | SSH'ing to check agent status | 6x/week | Health check cron |
+| `web_fetch → exec → message` sequence | 4x/week | `research-report` skill |
 
 ## Integration with Skill Creator
 
@@ -140,7 +234,9 @@ It should cover [patterns identified].
 2. **Time saved matters** — 10-second tasks aren't worth automating
 3. **Cross-agent patterns** — If multiple agents struggle, fix at infrastructure level
 4. **Rules before skills** — Sometimes a documented rule is better than code
-5. **Iterate** — Run weekly, not just once
+5. **LCM before JSONL** — Compacted history is only in LCM; check it first
+6. **Anomalies are urgent** — Tab leaks and broken crons don't wait for weekly review
+7. **Iterate** — Run weekly, not just once
 
 ## Resources
 

@@ -1,4 +1,4 @@
-# skill-discovery
+# skill-discovery v2.0.0
 
 OpenClaw skill lifecycle toolkit — discover new skills from session patterns, then monitor them for degradation.
 
@@ -11,6 +11,25 @@ Two things go wrong with agent skills:
 
 This repo solves both.
 
+## What's New in v2
+
+### 🧠 LCM as a Data Source
+Before reading raw JSONL, the skill now queries LCM summaries first. LCM captures compacted history that raw session files lose after compaction — patterns from weeks ago are often only visible there. Uses `lcm_grep` and `lcm_expand_query`.
+
+### 🔴 Operational Anomaly Detection
+Three new checks run alongside pattern discovery:
+- **Camofox tab leaks** — sessions that opened browser tabs without closing them
+- **Workspace file bloat** — context files >15KB eating your token budget (MEMORY.md, AGENTS.md, etc.)
+- **Cron failure patterns** — consecutive failures on the same job = broken automation that needs immediate attention
+
+### 🤖 Subagent Delegation Gap Detection
+Identifies sessions where the main agent did too much work inline: >15 tool calls + >3 different tool types + zero `sessions_spawn` = delegation miss. Flags them as refactor candidates to keep main session context lean.
+
+### 🔗 Tool Sequence Pattern Matching
+Looks for repeated tool-call sequences across sessions (same 3+ tool types in same order, appearing 3+ times). Example: `web_fetch → exec → message send` repeated 4x = a research-and-report workflow worth scripting into a dedicated skill.
+
+---
+
 ## What's Included
 
 ### 🔍 Skill Discovery (SKILL.md)
@@ -20,6 +39,8 @@ Analyzes your OpenClaw session history to find:
 - **Re-learned lessons** → Rules for AGENTS.md
 - **Multi-step workflows** → Automation opportunities
 - **Cross-agent struggles** → Infrastructure improvements
+- **Operational anomalies** → Leaks, bloat, broken crons
+- **Delegation gaps** → Tasks that should have used subagents
 
 Works as a behavioral skill — no scripts, just session analysis patterns your agent follows.
 
@@ -55,6 +76,12 @@ cd ~/.openclaw/skills
 git clone https://github.com/tuncer-deniz/skill-discovery
 chmod +x skill-discovery/skill-health.py
 ```
+
+> **Custom workspace path:** If your OpenClaw data lives somewhere other than `~/.openclaw`, set `CLAWD_WORKSPACE`:
+> ```bash
+> export CLAWD_WORKSPACE=/path/to/your/workspace
+> ```
+> The skill's session-find commands respect this variable.
 
 ## Skill Discovery Usage
 
@@ -105,6 +132,7 @@ fi
 | Setting | Default | Override |
 |---------|---------|----------|
 | Data file | `~/.skill-health/data.json` | `SKILL_HEALTH_DATA` env var |
+| Workspace | `~/.openclaw` | `CLAWD_WORKSPACE` env var |
 | Max entries | 500 (oldest rotated) | Edit `MAX_ENTRIES` in script |
 
 ## The Lifecycle
@@ -137,6 +165,7 @@ Patterns that became skills from actual usage:
 | Debugging cluster startup | 8x/week | `exo-cluster-ops` skill |
 | Looking up config structure | 5x/week | AGENTS.md rule |
 | Parsing session logs manually | 4x/week | This skill |
+| `web_fetch → exec → message` loop | 4x/week | `research-report` skill |
 
 ## Requirements
 
