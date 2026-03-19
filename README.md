@@ -1,3 +1,14 @@
+<p align="center">
+  <img src="banner.png" alt="Skill Discovery" width="100%">
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT License"></a>
+  <img src="https://img.shields.io/badge/Built%20for-OpenClaw-blueviolet?style=flat-square" alt="Built for OpenClaw">
+  <a href="https://github.com/tuncer-deniz/skill-discovery/stargazers"><img src="https://img.shields.io/github/stars/tuncer-deniz/skill-discovery?style=flat-square" alt="GitHub Stars"></a>
+  <a href="https://x.com/tuncerdeniz"><img src="https://img.shields.io/badge/follow-%40tuncerdeniz-1DA1F2?style=flat-square&logo=x&logoColor=white" alt="Follow @tuncerdeniz"></a>
+</p>
+
 # skill-discovery v2.0.0
 
 OpenClaw skill lifecycle toolkit — discover new skills from session patterns, then monitor them for degradation.
